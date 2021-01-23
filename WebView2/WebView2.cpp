@@ -7,12 +7,26 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <wrl.h>
+#include <wil/com.h>
+#include "WebView2.h"
+
 #include "resource.h"
+
+using namespace Microsoft::WRL;
 
 // Global Variables:
 HINSTANCE hInst;
 WCHAR szTitle[256];                  // The title bar text
 WCHAR szWindowClass[256];            // the main window class name
+
+
+// Pointer to WebViewController
+static wil::com_ptr<ICoreWebView2Controller> webviewController;
+
+// Pointer to WebView window
+static wil::com_ptr<ICoreWebView2> webviewWindow;
+
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -42,8 +56,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
     case WM_SIZE:
     {
-        RECT client;
-        GetClientRect(hWnd, &client);
+        if (webviewController != nullptr) {
+            RECT bounds;
+            GetClientRect(hWnd, &bounds);
+            webviewController->put_Bounds(bounds);
+        };    
     }
     break;
     case WM_DESTROY:
@@ -97,8 +114,51 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         return FALSE;
     }
 
+
     ShowWindow(hWnd, nCmdShow);
     UpdateWindow(hWnd);
+
+    // Step 3 - Create a single WebView within the parent window
+    // Locate the browser and set up the environment for WebView
+    CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
+        Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+            [hWnd](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+
+        // Create a CoreWebView2Controller and get the associated CoreWebView2 whose parent is the main window hWnd
+        env->CreateCoreWebView2Controller(hWnd, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+            [hWnd](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+            if (controller != nullptr) {
+                webviewController = controller;
+                webviewController->get_CoreWebView2(&webviewWindow);
+            }
+
+            // Add a few settings for the webview
+            // The demo step is redundant since the values are the default settings
+            ICoreWebView2Settings* Settings;
+            webviewWindow->get_Settings(&Settings);
+            Settings->put_IsScriptEnabled(TRUE);
+            Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
+            Settings->put_IsWebMessageEnabled(TRUE);
+
+            // Resize WebView to fit the bounds of the parent window
+            RECT bounds;
+            GetClientRect(hWnd, &bounds);
+            webviewController->put_Bounds(bounds);
+
+            // Schedule an async task to navigate to Bing
+            webviewWindow->Navigate(L"https://www.bing.com/");
+
+            // Step 4 - Navigation events
+
+            // Step 5 - Scripting
+
+            // Step 6 - Communication between host and web content
+
+            return S_OK;
+        }).Get());
+        return S_OK;
+    }).Get());
+
 
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_WEBVIEW2));
 
